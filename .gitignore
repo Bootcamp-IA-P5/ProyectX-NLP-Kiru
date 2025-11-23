@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+
+# ML Models (importante: no subir modelos grandes)
+models/*.pkl
+models/*.joblib
+models/*.h5
+models/*.pb
+
+# Datos sensibles/raw
+data/raw/*.csv
+data/raw/*.json
+data/raw/*.zip
+
+# Logs
+*.log
+logs/
+
+# Entornos virtuales
+.venv
+env/
+venv/
+.env
+
+# Jupyter (solo checkpoints)
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Trashes/
+
+# Node.js/React (frontend)
+node_modules/
+frontend/node_modules/
+frontend/build/
+frontend/dist/
+
+# Builds temporales
+*.tsbuildinfo
+temp/
+tmp/
