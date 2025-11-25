@@ -1,0 +1,29 @@
+# docker-compose.yml en raíz
+version: '3.8'
+
+services:
+  nlp-backend:
+    build:
+      context: .
+      target: production
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./models:/app/models
+    environment:
+      - ENV=production
+    restart: unless-stopped
+
+  nlp-dev:
+    build:
+      context: .
+      target: base
+    ports:
+      - "8001:8000"
+    volumes:
+      - .:/app
+      - /app/node_modules  # Para frontend si se agrega después
+    environment:
+      - ENV=development
+    command: uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
