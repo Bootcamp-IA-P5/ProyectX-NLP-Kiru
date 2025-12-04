@@ -5,8 +5,10 @@ API REST para detección de hate speech en comentarios de YouTube.
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from backend.models.model_loader import HateSpeechDetector
+from backend.models.model_loader import HateSpeechDetector, DistilBERTDetector
 import logging
+from fastapi.middleware.cors import CORSMiddleware
+
 
 #Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -19,18 +21,22 @@ app = FastAPI(
     version="1.0.0"
 )
 
-#Cargar modelo al inicio (singleton)
+#Cargar modelos al inicio (singleton)
 detector = None
+bert_detector = None
 
 @app.on_event("startup")
 async def load_model():
-    """Carga el modelo al iniciar la aplicación."""
-    global detector
+    """Carga los modelos al iniciar la aplicación."""
+    global detector, bert_detector
     try:
         detector = HateSpeechDetector()
-        logger.info("✅ Modelo cargado exitosamente")
+        logger.info("✅ Modelo Logistic Regression cargado exitosamente")
+        
+        bert_detector = DistilBERTDetector()
+        logger.info("✅ Modelo DistilBERT cargado exitosamente")
     except Exception as e:
-        logger.error(f"❌ Error cargando modelo: {e}")
+        logger.error(f"❌ Error cargando modelos: {e}")
         raise
     
     
@@ -101,10 +107,16 @@ async def root():
     return {
         "message": "Youtube Hate Speech Detector API",
         "version": "1.0.0",
+        "models": {
+            "logistic_regression": "Modelo clásico optimizado (Threshold 0.3)",
+            "distilbert": "Transformer fine-tuned (88% accuracy)"
+        },
         "endpoints": {
             "docs": "/docs",
             "health": "/health",
-            "predict": "/predict",
+            "predict": "/predict (LR)",
+            "predict_transformer": "/predict/transformer (DistilBERT)",
+            "predict_compare": "/predict/compare (LR vs BERT)",
             "predict_batch": "/predict/batch",
             "model_info": "/model/info"
         }
@@ -118,13 +130,24 @@ async def health_check():
     Returns:
         HealthResponse: Estado de salud del servicio
     """
-    model_loaded = detector is not None and detector.model is not None
+    lr_loaded = detector is not None and detector.model is not None
+    bert_loaded = bert_detector is not None and bert_detector.model is not None
     
     return HealthResponse(
-        status="healthy" if model_loaded else "degraded",
+        status="healthy" if (lr_loaded and bert_loaded) else "degraded",
         service="hate-speech-detector",
-        model_loaded=model_loaded,
-        model_type="Logistic Regression" if model_loaded else None
+        models= {
+            "logistic_regression": {
+                "loaded": lr_loaded,
+                "type": "Logistic Regression",
+                "threshold": 0.3
+            },
+            "distilbert": {
+                "loaded": bert_loaded,
+                "type": "DistilBERT-base-uncased",
+                "parameters": "66M"
+            }
+        }
     )
 
 @app.post("/predict", response_model=PredictionOutput, tags=["Predictions"])
@@ -185,7 +208,7 @@ async def predict_batch(input_data: BatchTextInput):
 @app.get("/model/info", response_model=ModelInfoResponse, tags=["Model"])
 async def get_model_info():
     """
-    Retorna información sobre el modelo cargado.
+    Retorna información sobre el modelo Logistic Regression.
     
     Returns:
         ModelInfoResponse: Información del modelo
@@ -203,3 +226,106 @@ async def get_model_info():
     except Exception as e:
         logger.error(f"Error obteniendo info del modelo: {e}")
         raise HTTPException(status_code=500, detail=f"Error:{str(e)}")
+    
+@app.post("/predict/transformer", response_model=PredictionOutput, tags=["Predictions"])
+async def predict_transformer(input_data: TextInput):
+    """
+    Predice si un comentario contiene hate speech usando DistilBERT.
+    
+    Ventajas sobre LR:
+    - Mayor accuracy (88% vs 52%)
+    - Mejor F1-score (87% vs 66%)
+    - Menor overfitting (3.3% vs 23%)
+    
+    Args:
+        input_data: Objeto con el texto a analizar
+        
+    Returns:
+        PredictionOutput: Predicción con confianza y probabilidades
+    """
+    if bert_detector is None:
+        raise HTTPException(status_code=503, detail="Modelo DistilBERT no disponible")    
+    try: 
+        result = bert_detector.predict(input_data.text)
+        
+        # Adaptar formato para PredictionOutput
+        return PredictionOutput(
+            text=result['text'],
+            prediction=result['prediction'],
+            confidence=result['confidence'],
+            is_toxic=result['label'] == 1, 
+            threshold_used=0.5      # DistilBERT usa softmax, threshold implicito 0.5
+        )
+        
+    except Exception as e:
+        logger.error(f"Error en prediccion DistilBERT: {e}")
+        raise HTTPException(status_code=500, detail=f"Error en prediccion: {str(e)}")
+
+@app.post("/predict/compare", tags=["Predictions"])
+async def predict_compare(input_data: TextInput):
+    """
+    Compara predicciones de Logistic Regression vs DistilBERT.
+    
+    Útil para:
+    - Ver diferencias de confianza entre modelos
+    - Identificar casos donde los modelos no están de acuerdo
+    - Debugging y análisis de errores
+    
+    Args:
+        input_data: Objeto con el texto a analizar
+        
+    Returns:
+        dict: Predicciones de ambos modelos + métricas de comparación
+    """
+    if detector is None or bert_detector is None:
+        raise HTTPException (status_code=503, details="Modelos no disponibles")
+    
+    try:
+        # Predicciones de ambos modelos
+        lr_result = detector.predict(input_data.text)
+        bert_result = bert_detector.predict(input_data.text)
+        
+        # Formatear respuesta comparativa
+        return {
+            "text": input_data.text,
+            "logistic_regression": {
+                "prediction": lr_result['prediction'],
+                "confidence": lr_result['confidence'],
+                "is_toxic": lr_result['is_toxic'],
+                "threshold": lr_result['threshold_used']
+            },
+            "distilbert": {
+                "prediction": bert_result['prediction'],
+                "confidence": bert_result['confidence'],
+                "probabilities": bert_result['probabilities']
+            },
+            "comparison": {
+                "agreement": lr_result['prediction'] == bert_result['prediction'],
+                "confidence_diff": abs(lr_result['confidence'] - bert_result['confidence']),
+                "both_confident": lr_result['confidence'] > 0.7 and bert_result['confidence'] > 0.7,
+                "recommended_model": "distilbert" if bert_result['confidence'] > lr_result['confidence'] else "logistic_regression"
+            }
+        }
+    
+    except Exception as e:
+        logger.error(f"Error en comparación: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+stats = {
+    "lr_predictions": 0,
+    "bert_predictions": 0,
+    "comparisons": 0
+}
+
+@app.get("/stats", tags=["General"])
+async def get_stats():
+    """Retorna estadisticas de uso de la API."""
+    return stats
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Permitir React
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
