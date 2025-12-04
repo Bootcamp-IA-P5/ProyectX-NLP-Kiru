@@ -22,6 +22,9 @@ FROM base as production
 # Copy backend code
 COPY backend/ ./backend/
 
+# Copy models
+COPY backend/models/ ./backend/models/
+
 # Expose port
 EXPOSE 8000
 

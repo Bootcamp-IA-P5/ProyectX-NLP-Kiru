@@ -9,6 +9,11 @@ nltk
 spacy
 beautifulsoup4
 
+# Transformers (DistilBERT)
+transformers>=4.30.0
+torch>=2.0.0
+sentencepiece
+
 # Web framework
 fastapi
 uvicorn
