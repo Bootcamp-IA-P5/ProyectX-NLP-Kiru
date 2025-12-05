@@ -85,8 +85,7 @@ class HealthResponse(BaseModel):
     """Modelo para health check."""
     status: str
     service: str
-    model_loaded: bool
-    model_type: Optional[str] = None
+    models: dict
 
 
 class ModelInfoResponse(BaseModel):
