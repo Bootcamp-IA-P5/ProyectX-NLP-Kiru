@@ -34,3 +34,6 @@ pytest
 
 # Utils  
 tqdm
+
+# YouTube data extraction
+google-api-python-client

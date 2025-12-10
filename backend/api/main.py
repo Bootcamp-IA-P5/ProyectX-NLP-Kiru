@@ -6,6 +6,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from backend.models.model_loader import HateSpeechDetector, DistilBERTDetector
+from datetime import datetime
+from backend.utils.youtube_scraper import YouTubeCommentFetcher
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,22 +26,26 @@ app = FastAPI(
 #Cargar modelos al inicio (singleton)
 detector = None
 bert_detector = None
+youtube_fetcher = None
 
 @app.on_event("startup")
 async def load_model():
     """Carga los modelos al iniciar la aplicación."""
-    global detector, bert_detector
+    global detector, bert_detector, youtube_fetcher
     try:
         detector = HateSpeechDetector()
         logger.info("✅ Modelo Logistic Regression cargado exitosamente")
         
         bert_detector = DistilBERTDetector()
         logger.info("✅ Modelo DistilBERT cargado exitosamente")
+        
+        youtube_fetcher = YouTubeCommentFetcher()
+        logger.info("✅ YouTube Comment Fetcher inicializado")
     except Exception as e:
         logger.error(f"❌ Error cargando modelos: {e}")
         raise
-    
-    
+
+
 # === MODELOS PYDANTIC ===
 
 class TextInput(BaseModel):
@@ -85,9 +91,8 @@ class HealthResponse(BaseModel):
     """Modelo para health check."""
     status: str
     service: str
-    model_loaded: bool
-    model_type: Optional[str] = None
-
+    models: dict
+    
 
 class ModelInfoResponse(BaseModel):
     """Modelo para información del modelo."""
@@ -97,6 +102,68 @@ class ModelInfoResponse(BaseModel):
     vocab_size: int
     model_loaded: bool
     vectorizer_loaded: bool
+
+# ==================== YouTube Analysis Models ====================
+
+class YouTubeURLInput(BaseModel):
+    """Modelo para input de análisis de Youtube."""
+    url: str = Field(
+        ...,
+        description="URL del video de Youtube",
+        pattern=r"^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/)[a-zA-Z0-9_-]{11}"
+    )
+    max_comments: Optional[int] = Field(
+        200,
+        ge=1,
+        le=200,
+        description="Número máximo de comentarios a analizar"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "max_comments": 100
+            }
+        }
+
+class CommentAnalysis(BaseModel):
+    """Analisis individual de un comentario."""
+    comment_id: str
+    author: str
+    text: str
+    prediction: str # 'hate_speech' | 'normal'
+    confidence: float
+    is_toxic: bool
+    published_at: str
+
+class YouTubeAnalysisOutput(BaseModel):
+    """Resultado completo del análisis de video."""
+    video_id: str
+    video_title: str
+    total_comments_analyzed: int
+    toxic_count: int
+    normal_count: int
+    toxicity_percentage: float
+    top_toxic_comments: List[CommentAnalysis] = Field(
+        ...,
+        description="Top 10 comentarios mas toxicos ordenados por confidence"
+    )
+    analysis_timestamp: str
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "video_id": "dQw4w9WgXcQ",
+                "video_title": "Rick Astley - Never Gonna Give You Up",
+                "total_comments_analyzed": 150,
+                "toxic_count": 23,
+                "normal_count": 127,
+                "toxicity_percentage": 15.33,
+                "top_toxic_comments": [],
+                "analysis_timestamp": "2025-12-05T10:30:00"
+            }
+        }
 
 
 # === ENDPOINTS ===    
@@ -310,6 +377,187 @@ async def predict_compare(input_data: TextInput):
     except Exception as e:
         logger.error(f"Error en comparación: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+
+# ==================== YOUTUBE ANALYSIS ENDPOINT ====================
+
+@app.post("/analyze/video", response_model=YouTubeAnalysisOutput, tags=["YouTube Analysis"])
+async def analyze_youtube_video(input_data: YouTubeURLInput):
+    """
+    Analiza los comentarios de un video de YouTube para detectar hate speech.
+    
+    Extrae hasta 200 comentarios del video y los analiza usando DistilBERT.
+    Retorna estadísticas de toxicidad y los top 10 comentarios más tóxicos.
+    
+    Args:
+        input_data: URL del video y número máximo de comentarios
+        
+    Returns:
+        YouTubeAnalysisOutput: Análisis completo con estadísticas y top comentarios tóxicos
+        
+    Raises:
+        HTTPException 400: URL inválida
+        HTTPException 404: Video no encontrado, privado o sin comentarios accesibles
+        HTTPException 503: Modelo DistilBERT no disponible
+        HTTPException 500: Error interno durante el análisis
+    """
+    # Verificar que el modelo esté disponible
+    if bert_detector is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Modelo DistilBERT no disponible"
+        )
+    
+    if youtube_fetcher is None:
+        raise HTTPException(
+            status_code=503,
+            detail="YouTube Comment Fetcher no inicializado"
+        )
+    
+    try:
+        # Validar URL
+        if not youtube_fetcher.validate_url(input_data.url):
+            raise HTTPException(
+                status_code=400,
+                detail="URL de YouTube inválida. Use formato: youtube.com/watch?v=XXX o youtu.be/XXX"
+            )
+        
+        # Extraer video ID
+        video_id = youtube_fetcher.extract_video_id(input_data.url)
+        if not video_id:
+            raise HTTPException(
+                status_code=400,
+                detail="No se pudo extraer el ID del video de la URL"
+            )                
+            
+        logger.info(f"Analizando video {video_id}, max_comments={input_data.max_comments}")
+
+        # Obtener título del video
+        video_title = youtube_fetcher.fetch_video_title(video_id)
+        
+        # Extraer comentarios con timeout
+        try:
+            comments = youtube_fetcher.fetch_comments(
+                video_id=video_id,
+                max_comments=input_data.max_comments
+            )
+        
+        except ValueError as e:
+            raise HTTPException(
+                status_code=404,
+                detail=str(e)
+            )
+        except Exception as e:
+            logger.error(f"Error extrayendo comentarios: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error al extraer comentarios: {str(e)}"
+            )
+            
+        # Caso: video sin comentarios
+        if not comments or len(comments) == 0:
+            logger.warning(f"Video {video_id} no tiene comentarios disponibles")
+            return YouTubeAnalysisOutput(
+                video_id=video_id,
+                video_title="Video sin comentarios disponibles",
+                total_comments_analyzed=0,
+                toxic_count=0,
+                normal_count=0,
+                toxicity_percentage=0.0,
+                top_toxic_comments=[],
+                analysis_timestamp=datetime.now().isoformat()
+            )
+            
+        # Extraer solo los textos para batch prediction
+        texts = [comment['text'] for comment in comments if comment.get('text')]
+        
+        if not texts:
+            logger.warning(f"No se encontraron textos validos en los comentarios")
+            return YouTubeAnalysisOutput(
+                video_id=video_id,
+                video_title="Sin textos válidos",
+                total_comments_analyzed=0,
+                toxic_count=0,
+                normal_count=0,
+                toxicity_percentage=0.0,
+                top_toxic_comments=[],
+                analysis_timestamp=datetime.now().isoformat()
+            )
+        
+        logger.info(f"Analizando {len(texts)} comentarios con DistilBERT...")
+        
+        # Prediccion en batch (mas eficiente)
+        predictions = bert_detector.predict_batch(texts)
+        
+        # Combinar predicciones con metadata de comentarios
+        analyzed_comments = []
+        toxic_count = 0
+        normal_count = 0
+        
+        for i, (comment, prediction) in enumerate(zip(comments[:len(predictions)], predictions)):
+            is_toxic = prediction['prediction'] == 'hate_speech'
+            
+            if is_toxic:
+                toxic_count += 1
+            else:
+                normal_count += 1
+            
+            analyzed_comments.append({
+                'comment_id': comment.get('comment_id', f'comment_{i}'),
+                'author': comment.get('author', 'Unknown'),
+                'text': comment.get('text', ''),
+                'prediction': prediction['prediction'],
+                'confidence': prediction['confidence'],
+                'is_toxic':  is_toxic,
+                'published_at': str(comment.get('published_at', ''))
+            })
+        # Filtrar solo tóxicos y ordenar por confidence (descendiente)
+        toxic_comments = [c for c in analyzed_comments if c['is_toxic']]
+        toxic_comments_sorted = sorted(
+            toxic_comments,
+            key=lambda x: x['confidence'],
+            reverse=True
+        )
+        
+        # Tomar top 10
+        top_10_toxic = toxic_comments_sorted[:10]
+        
+        # Calcular porcentaje de toxicidad
+        total_analyzed = len(analyzed_comments)
+        toxicity_percentage = (toxic_count / total_analyzed * 100) if total_analyzed > 0 else 0.0
+        
+        logger.info(
+            f"Análisis completado: {total_analyzed} comentarios, "
+            f"{toxic_count} tóxicos ({toxicity_percentage:.2f}%)"
+            )
+        
+        # Convertir a modelos Pydantic
+        top_toxic_models = [CommentAnalysis(**comment) for comment in top_10_toxic]
+        
+        return YouTubeAnalysisOutput(
+            video_id=video_id,
+            video_title=video_title,            
+            total_comments_analyzed=total_analyzed,            
+            toxic_count=toxic_count,
+            normal_count=normal_count,
+            toxicity_percentage=round(toxicity_percentage, 2),
+            top_toxic_comments=top_toxic_models,
+            analysis_timestamp=datetime.now().isoformat()
+        )
+        
+    except HTTPException:
+        # Re-raise HTTPExceptions (ya tienen el status code correcto)
+        raise
+    except Exception as e:
+        logger.error(f"Error inesperado analizando video: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error interno: {str(e)}"
+        )
+        
+        
+
 
 stats = {
     "lr_predictions": 0,
