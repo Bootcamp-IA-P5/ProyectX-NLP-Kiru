@@ -21,6 +21,19 @@ const api = {
   getMetrics: async () => {
     const response = await axios.get(`${API_BASE_URL}/metrics`)
     return response.data
+  },
+
+
+  compareModels: async (text) => {
+    const response = await axios.post(`${API_BASE_URL}/predict/compare`, {
+      text
+    })
+    return response.data
+  },
+
+  getHealth: async () => {
+    const response = await axios.get(`${API_BASE_URL}/health`)
+    return response.data
   }
 }
 
