@@ -24,8 +24,11 @@ services:
       - "8001:8000"
     volumes:
       - .:/app
-      - /app/node_modules  # Para frontend si se agrega después
+      - /app/node_modules
     environment:
       - ENV=development
-      - PYTHONPATH=/app
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+    dns:                    
+    - 8.8.8.8            
+    - 8.8.4.4            
     command: uvicorn backend.api.main:app --host 0.0.0.0 --port 8000 --reload
