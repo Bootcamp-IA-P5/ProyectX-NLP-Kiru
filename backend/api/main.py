@@ -23,6 +23,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5174"],  # Permitir React
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 #Cargar modelos al inicio (singleton)
 detector = None
 bert_detector = None
@@ -569,11 +576,3 @@ stats = {
 async def get_stats():
     """Retorna estadisticas de uso de la API."""
     return stats
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Permitir React
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
