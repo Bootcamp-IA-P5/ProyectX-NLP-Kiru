@@ -31,6 +31,8 @@ optuna
 
 # Testing
 pytest
+pytest-cov
+httpx
 
 # Utils  
 tqdm
