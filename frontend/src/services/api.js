@@ -12,7 +12,7 @@ const api = {
   },
 
   predictText: async (text) => {
-    const response = await axios.post(`${API_BASE_URL}/predict`, {
+    const response = await axios.post(`${API_BASE_URL}/predict/transformer`, {
       text
     })
     return response.data

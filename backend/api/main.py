@@ -25,7 +25,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5174"],  # Permitir React
+    allow_origins=["*"],  # Permitir todos temporalmente
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -87,6 +87,7 @@ class PredictionOutput(BaseModel):
     confidence: float
     is_toxic: bool
     threshold_used: float
+    model: Optional[str] = None
 
 class BatchPredictionOutput(BaseModel):
     """Modelo para output de predicción por lotes."""
@@ -323,13 +324,14 @@ async def predict_transformer(input_data: TextInput):
         result = bert_detector.predict(input_data.text)
         
         # Adaptar formato para PredictionOutput
-        return PredictionOutput(
-            text=result['text'],
-            prediction=result['prediction'],
-            confidence=result['confidence'],
-            is_toxic=result['label'] == 1, 
-            threshold_used=0.5      # DistilBERT usa softmax, threshold implicito 0.5
-        )
+        return {
+            "text": result['text'],
+            "prediction": result['prediction'],
+            "confidence": result['confidence'],
+            "is_toxic": result['label'] == 1, 
+            "threshold_used": 0.5,      # DistilBERT usa softmax, threshold implicito 0.5
+            "model": "distilbert-base-uncased-finetuned"
+        }
         
     except Exception as e:
         logger.error(f"Error en prediccion DistilBERT: {e}")
