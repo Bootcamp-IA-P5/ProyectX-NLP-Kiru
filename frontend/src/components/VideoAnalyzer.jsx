@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import confetti from 'canvas-confetti' 
 import api from '../services/api'
 
 // Ejemplos de videos populares
@@ -24,6 +25,21 @@ function VideoAnalyzer() {
     try {
       const response = await api.analyzeVideo(url, maxComments)
       setResult(response)
+      
+      // Confetti si NO hay comentarios tóxicos
+      if (response.toxic_count === 0) {
+        confetti({
+          particleCount: 150,
+          spread: 90,
+          origin: { y: 0.6 },
+          startVelocity: 45,
+          decay: 0.91,
+          scalar: 1.2,
+          ticks: 200,
+          colors: ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0']
+        });
+      }
+      
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al analizar el video')
     } finally {
@@ -163,30 +179,41 @@ function VideoAnalyzer() {
                 </span>
               </h3>
               <div className="space-y-4">
-                {result.top_toxic_comments.map((comment, index) => (
-                  <div key={comment.comment_id} className="bg-gray-700 rounded-lg p-4 border-l-4 border-red-500 hover:bg-gray-600 transition-colors">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-red-600 text-white px-3 py-1 rounded-full text-sm font-bold">
-                          #{index + 1}
+                {result.top_toxic_comments.map((comment, index) => {
+                  const isHighConfidence = comment.confidence > 0.80;
+                  
+                  return (
+                    <div 
+                      key={comment.comment_id} 
+                      className={`bg-gray-700 rounded-lg p-4 hover:bg-gray-600 transition-colors border-l-4 ${
+                        isHighConfidence 
+                          ? 'border-toxic-high animate-shake border-red-600' 
+                          : 'border-red-500'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="bg-red-600 text-white px-3 py-1 rounded-full text-sm font-bold">
+                            #{index + 1}
+                          </span>
+                          <span className="text-gray-300 font-medium">{comment.author}</span>
+                        </div>
+                        <span className="text-red-400 text-sm font-semibold bg-red-900 bg-opacity-50 px-3 py-1 rounded-full">
+                          {(comment.confidence * 100).toFixed(1)}% confianza
                         </span>
-                        <span className="text-gray-300 font-medium">{comment.author}</span>
                       </div>
-                      <span className="text-red-400 text-sm font-semibold bg-red-900 bg-opacity-50 px-3 py-1 rounded-full">
-                        {(comment.confidence * 100).toFixed(1)}% confianza
-                      </span>
+                      <p className="text-white mb-3 leading-relaxed">{comment.text}</p>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-400">
+                          📅 {new Date(comment.published_at).toLocaleDateString('es-ES')}
+                        </span>
+                        <span className="bg-red-800 text-red-200 px-3 py-1 rounded-full text-xs font-semibold">
+                          🚫 Hate Speech
+                        </span>
+                      </div>
                     </div>
-                    <p className="text-white mb-3 leading-relaxed">{comment.text}</p>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-400">
-                        📅 {new Date(comment.published_at).toLocaleDateString('es-ES')}
-                      </span>
-                      <span className="bg-red-800 text-red-200 px-3 py-1 rounded-full text-xs font-semibold">
-                        🚫 Hate Speech
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

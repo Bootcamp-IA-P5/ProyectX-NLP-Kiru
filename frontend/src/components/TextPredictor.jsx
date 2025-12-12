@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import confetti from 'canvas-confetti'  // ← AÑADIR ESTA LÍNEA
 import api from '../services/api'
 
 // Ejemplos de texto para probar
@@ -23,6 +24,20 @@ function TextPredictor() {
     try {
       const response = await api.predictText(text)
       setResult(response)
+
+      // Confetti si NO es tóxico
+      if (response.is_toxic === false) {
+        confetti({
+          particleCount: 150,
+          spread: 90,
+          origin: { y: 0.6 },
+          startVelocity: 45,
+          decay: 0.91,
+          scalar: 1.2,
+          ticks: 200,
+          colors: ['#10b981', '#34d399', '#6ee7b7', '#a7f3d0']
+        });
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al analizar el texto')
     } finally {
