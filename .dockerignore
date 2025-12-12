@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Data (solo en desarrollo local)
+data/raw/
+notebooks/
+
+# Node
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# Frontend
+frontend/node_modules
+frontend/.vite
+frontend/dist
+frontend/build
+node_modules/
+.vite/

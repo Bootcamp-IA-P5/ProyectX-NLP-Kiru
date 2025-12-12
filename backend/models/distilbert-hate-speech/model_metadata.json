@@ -1,0 +1,29 @@
+{
+  "model_name": "distilbert-base-uncased",
+  "task": "hate_speech_detection",
+  "dataset": "youtoxic_augmented_2x",
+  "total_samples": 1994,
+  "train_samples": 1395,
+  "val_samples": 299,
+  "test_samples": 300,
+  "metrics": {
+    "model_version": "V1",
+    "val_accuracy": 0.9063545150501672,
+    "test_accuracy": 0.8533333333333334,
+    "test_f1": 0.8394160583941606,
+    "test_precision": 0.8455882352941176,
+    "test_recall": 0.8333333333333334,
+    "overfitting": 0.05302118171683379
+  },
+  "labels": {
+    "0": "normal",
+    "1": "hate_speech"
+  },
+  "max_length": 128,
+  "training_args": {
+    "epochs": 5,
+    "batch_size": 16,
+    "learning_rate": 2e-05,
+    "weight_decay": 0.01
+  }
+}
