@@ -142,7 +142,8 @@ class HateSpeechDetector:
             'prediction': 'hate_speech' if is_toxic else 'normal',
             'confidence': float(proba),
             'is_toxic': bool(is_toxic),
-            'threshold_used': self.threshold
+            'threshold_used': self.threshold,
+            'model': f'logistic_regression_threshold_{self.threshold}'
         }
     
     def predict_batch(self, texts):
